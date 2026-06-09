@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HanFont Compress · 汉字字体部件化压缩演示</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --border: #e5e7eb;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --ok: #059669;
+      --warn: #d97706;
+      --err: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 18px 28px;
+      background: linear-gradient(135deg, #1e3a8a, #2563eb);
+      color: #fff;
+    }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    header p  { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+    main { padding: 24px 28px 60px; max-width: 1280px; margin: 0 auto; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    label.field { display: inline-flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+    label.field input[type=number] { width: 120px; }
+    input[type=number], input[type=file] {
+      padding: 6px 8px; border: 1px solid var(--border);
+      border-radius: 6px; background: #fff; font-size: 13px;
+    }
+    button {
+      background: var(--accent); color: #fff; border: 0;
+      padding: 8px 16px; border-radius: 6px; font-size: 13px;
+      cursor: pointer; font-weight: 500;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    button.secondary { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
+    button.secondary:hover { background: var(--accent-soft); }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .stat {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .stat .label { font-size: 12px; color: var(--muted); }
+    .stat .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+
+    .muted { color: var(--muted); font-size: 13px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td {
+      text-align: left; padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; background: #fafafa; }
+    tbody tr:hover { background: #f9fafb; }
+
+    .component-list {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f3f4f6; border: 1px solid var(--border);
+      padding: 4px 8px; border-radius: 999px; font-size: 12px;
+    }
+    .chip .big { font-size: 16px; line-height: 1; }
+
+    .glyph-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+    .glyph-card {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; background: #fff;
+    }
+    .glyph-card .label {
+      font-size: 12px; color: var(--muted); margin-bottom: 6px;
+      display: flex; justify-content: space-between;
+    }
+    .glyph-card .compare {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .glyph-card .compare > div { flex: 1; text-align: center; }
+    .glyph-card svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+    .glyph-card .cmp-caption { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    .score { font-variant-numeric: tabular-nums; }
+    .score-high { color: var(--ok); }
+    .score-mid  { color: var(--warn); }
+    .score-low  { color: var(--err); }
+
+    #status {
+      padding: 10px 14px; border-radius: 6px; font-size: 13px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    #status.err { background: #fef2f2; color: var(--err); }
+    #status.ok  { background: #dcfce7; color: var(--ok); }
+
+    .hint {
+      background: #fffbeb; color: #92400e;
+      border: 1px solid #fde68a; padding: 10px 14px;
+      border-radius: 6px; font-size: 12px; margin-bottom: 16px;
+    }
+
+    details summary {
+      cursor: pointer; font-size: 13px; color: var(--accent);
+    }
+    pre { background: #f3f4f6; padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HanFont Compress · Web UI</h1>
+    <p>上传 TTF/OTF 字体 → 基于汉字部件库的字形压缩 → 原始字形 vs 压缩重建字形 的可视化对比</p>
+  </header>
+
+  <main>
+    <!-- 上传 -->
+    <section class="panel">
+      <h2>① 上传字体文件</h2>
+      <div class="hint">
+        演示提示: 当前演示方案用前 20 个汉字字形作为"伪部件库"，再对全部字形做部件匹配。真实场景应接入偏旁部首表 / 汉字结构分析。
+      </div>
+      <div class="row">
+        <input type="file" id="fileInput" accept=".ttf,.otf,.woff,.woff2" />
+        <label class="field">
+          最大处理字数
+          <input type="number" id="maxChars" value="200" min="1" max="20000" />
+        </label>
+        <label class="field">
+          相似度阈值 (0-1)
+          <input type="number" id="threshold" value="0.60" step="0.05" min="0" max="1" />
+        </label>
+        <button id="btnRun">开始压缩分析</button>
+        <button id="btnDownload" class="secondary" disabled>下载 .hfc</button>
+      </div>
+      <div id="status" style="margin-top: 14px; display: none;"></div>
+    </section>
+
+    <!-- 统计 -->
+    <section class="panel" id="panelStats" style="display:none;">
+      <h2>② 结果统计</h2>
+      <div class="stat-grid" id="statGrid"></div>
+      <details style="margin-top:10px;">
+        <summary>查看原始 JSON</summary>
+        <pre id="rawJson"></pre>
+      </details>
+    </section>
+
+    <!-- 部件库 -->
+    <section class="panel" id="panelComponents" style="display:none;">
+      <h2>③ 部件库 (<span id="compCount">0</span>)</h2>
+      <div class="component-list" id="componentList"></div>
+    </section>
+
+    <!-- 匹配成功 -->
+    <section class="panel" id="panelMatched" style="display:none;">
+      <h2>④ 匹配成功的字 (<span id="matchCount">0</span>) · 原始 vs 重建 对比</h2>
+      <p class="muted">左: 字体中直接提取的原始轮廓 / 右: 用部件 + 仿射变换重新拼出的字形</p>
+      <div class="glyph-grid" id="matchedGrid"></div>
+    </section>
+
+    <!-- 未匹配 -->
+    <section class="panel" id="panelUnmatched" style="display:none;">
+      <h2>⑤ 未匹配的字 · 将以原始轮廓存储 (<span id="rawCount">0</span>)</h2>
+      <div class="glyph-grid" id="unmatchedGrid"></div>
+    </section>
+  </main>
+
+  <script>
+    // ---------- 状态 ----------
+    let currentSession = null;
+    let sessionData = null;  // 来自 /api/session/<id> 的详细数据
+
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+
+    function showStatus(msg, cls = "") {
+      statusEl.textContent = msg;
+      statusEl.className = cls;
+      statusEl.style.display = "block";
+    }
+
+    function fmtNum(n) {
+      if (typeof n !== "number") return String(n);
+      return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    function scoreClass(s) {
+      if (s >= 0.85) return "score-high";
+      if (s >= 0.65) return "score-mid";
+      return "score-low";
+    }
+
+    // ---------- 事件 ----------
+    $("btnRun").addEventListener("click", async () => {
+      const file = $("fileInput").files[0];
+      if (!file) {
+        showStatus("请先选择一个字体文件 (.ttf / .otf)", "err");
+        return;
+      }
+      showStatus("正在上传并执行流水线，请稍候…");
+
+      const fd = new FormData();
+      fd.append("font", file);
+      fd.append("max_chars", $("maxChars").value);
+      fd.append("threshold", $("threshold").value);
+
+      try {
+        const resp = await fetch("/api/upload", { method: "POST", body: fd });
+        const json = await resp.json();
+        if (!json.ok) {
+          showStatus("失败: " + json.error, "err");
+          return;
+        }
+        currentSession = json.session;
+        $("btnDownload").disabled = false;
+        showStatus(
+          `完成: ${currentSession.stats.total_chars} 字, ` +
+          `${currentSession.stats.component_mode} 命中 / ` +
+          `${currentSession.stats.raw_mode} 原始, ` +
+          `hfc=${fmtNum(currentSession.stats.hfc_size)} bytes`,
+          "ok"
+        );
+        await loadSessionDetail(currentSession.session_id);
+      } catch (e) {
+        showStatus("网络错误: " + e.message, "err");
+      }
+    });
+
+    $("btnDownload").addEventListener("click", () => {
+      if (!currentSession) return;
+      window.location = `/api/download/hfc/${currentSession.session_id}`;
+    });
+
+    // ---------- 详情 ----------
+    async function loadSessionDetail(sid) {
+      const resp = await fetch(`/api/session/${sid}`);
+      const json = await resp.json();
+      if (!json.ok) {
+        showStatus("获取详情失败: " + json.error, "err");
+        return;
+      }
+      sessionData = json;
+      renderStats(json);
+      renderComponents(json);
+      renderMatched(json);
+      renderUnmatched(json);
+      $("rawJson").textContent = JSON.stringify(json.session, null, 2);
+    }
+
+    function renderStats(json) {
+      const s = json.session.stats;
+      const items = [
+        ["提取字形数", s.total_chars],
+        ["部件编码命中", s.component_mode],
+        ["原始轮廓 (RAW)", s.raw_mode],
+        ["平均相似度", s.avg_match_score.toFixed(3)],
+        [".hfc 文件大小", fmtNum(s.hfc_size) + " bytes"],
+        ["总耗时", fmtNum(s.time_total_ms) + " ms"],
+      ];
+      const grid = $("statGrid");
+      grid.innerHTML = items.map(
+        ([k, v]) => `<div class="stat"><div class="label">${k}</div><div class="value">${v}</div></div>`
+      ).join("");
+      $("panelStats").style.display = "block";
+    }
+
+    function renderComponents(json) {
+      const comps = json.components;
+      $("compCount").textContent = comps.length;
+      $("componentList").innerHTML = comps.map(c =>
+        `<span class="chip"><span class="big">${c.semantic || "·"}</span> ` +
+        `<span>${c.name} <span class="muted">(${c.id})</span></span></span>`
+      ).join("");
+      $("panelComponents").style.display = "block";
+    }
+
+    function renderMatched(json) {
+      const items = json.matched;
+      $("matchCount").textContent = items.length;
+      if (!items.length) {
+        $("panelMatched").style.display = "none";
+        return;
+      }
+      const sid = json.session.session_id;
+      const MAX = Math.min(items.length, 120);
+      const html = items.slice(0, MAX).map(it => `
+        <div class="glyph-card">
+          <div class="label">
+            <span>${it.char} <span class="mono">${it.unicode_hex}</span></span>
+            <span class="score ${scoreClass(it.match_score)}">${it.match_score.toFixed(3)}</span>
+          </div>
+          <div class="compare">
+            <div>
+              <img src="/api/glyph/svg?sid=${sid}&unicode=${it.unicode}&mode=original&size=180" alt="original" />
+              <div class="cmp-caption">原始</div>
+            </div>
+            <div>
+              <img src="/api/glyph/svg?sid=${sid}&unicode=${it.unicode}&mode=reconstructed&size=180" alt="reconstructed" />
+              <div class="cmp-caption">重建</div>
+            </div>
+          </div>
+          <div class="muted" style="font-size:11px; margin-top:6px;">
+            parts: ${it.parts.join(", ") || "—"}
+          </div>
+        </div>
+      `).join("");
+      $("matchedGrid").innerHTML = html;
+      $("panelMatched").style.display = "block";
+    }
+
+    function renderUnmatched(json) {
+      const items = json.unmatched;
+      $("rawCount").textContent = items.length;
+      if (!items.length) {
+        $("panelUnmatched").style.display = "none";
+        return;
+      }
+      const sid = json.session.session_id;
+      const MAX = Math.min(items.length, 60);
+      const html = items.slice(0, MAX).map(it => `
+        <div class="glyph-card">
+          <div class="label">
+            <span>${it.char} <span class="mono">${it.unicode_hex}</span></span>
+            <span class="muted">RAW</span>
+          </div>
+          <div class="compare">
+            <div>
+              <img src="/api/glyph/svg?sid=${sid}&unicode=${it.unicode}&mode=original&size=180" alt="original" />
+              <div class="cmp-caption">原始轮廓</div>
+            </div>
+          </div>
+        </div>
+      `).join("");
+      $("unmatchedGrid").innerHTML = html;
+      $("panelUnmatched").style.display = "block";
+    }
+  </script>
+</body>
+</html>

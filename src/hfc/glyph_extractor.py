@@ -115,6 +115,32 @@ class GlyphContours:
         """检查是否有轮廓数据"""
         return len(self.contours) == 0 or all(c.is_empty() for c in self.contours)
 
+    def recompute_bbox(self) -> None:
+        """从当前轮廓重新计算包围盒（F26Dot6 整数）"""
+        if not self.contours or self.is_empty():
+            self.bbox = (0, 0, 0, 0)
+            return
+        x_min = y_min = float("inf")
+        x_max = y_max = float("-inf")
+        for contour in self.contours:
+            for p in contour.points:
+                px = float(p.x)
+                py = float(p.y)
+                if px < x_min:
+                    x_min = px
+                if px > x_max:
+                    x_max = px
+                if py < y_min:
+                    y_min = py
+                if py > y_max:
+                    y_max = py
+        self.bbox = (
+            int(x_min),
+            int(y_min),
+            int(x_max),
+            int(y_max),
+        )
+
     def bounding_box(self) -> tuple[float, float, float, float]:
         """获取浮点形式的包围盒"""
         x_min, y_min, x_max, y_max = self.bbox
