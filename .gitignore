@@ -68,7 +68,10 @@ venv.bak/
 
 # Project specific
 sample-fonts/
+output/
 *.ttf
 *.otf
 *.woff
 *.woff2
+*.hfc
+*.png
