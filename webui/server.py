@@ -25,7 +25,7 @@ import sys
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,12 @@ from hfc.component_matcher import (
     EncodedChar,
     MatchConfig,
 )
+from hfc.decomposer import (
+    SharedComponent,
+    SubContour,
+    contour_decompose,
+    find_shared_components,
+)
 from hfc.glyph_extractor import (
     GlyphContours,
     GlyphExtractor,
@@ -76,7 +82,9 @@ class PipelineSession:
     encoded_chars: list[EncodedChar]
     hfc_bytes: bytes
     stats: dict[str, Any]
-    created_at: float
+    char_subs: dict[str, list[SubContour]] = field(default_factory=dict)
+    shared: list[SharedComponent] = field(default_factory=list)
+    created_at: float = 0.0
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -87,6 +95,7 @@ class PipelineSession:
             "component_count": len(self.library),
             "char_count": len(self.encoded_chars),
             "hfc_size": len(self.hfc_bytes),
+            "shared_component_count": len(self.shared),
         }
 
 
@@ -102,10 +111,13 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64MB 上限
 
 
 def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
-                 similarity_threshold: float = 0.60) -> PipelineSession:
+                 similarity_threshold: float = 0.60,
+                 decomposer_tolerance: float = 0.05,
+                 ) -> PipelineSession:
     """
     跑完整流水线:
       提取字形 → 构建部件库 → 匹配编码 → .hfc 编码
+      额外: 几何连通域拆分 + 跨字共享部件检测
     """
     t0 = time.time()
 
@@ -131,8 +143,6 @@ def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
         t_extract = time.time()
 
         # ---------- 2. 构建部件库 (取前 N 个字形作为"伪部件") ----------
-        # 注: 这是演示用法。真实方案应使用汉字偏旁部首表 /
-        # 结构分析工具, 将汉字拆成部件后再匹配。
         library = ComponentLibrary()
         N = min(20, len(glyphs))
         for i, g in enumerate(glyphs[:N]):
@@ -155,10 +165,16 @@ def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
         encoded: list[EncodedChar] = [matcher.match(g) for g in glyphs]
         t_match = time.time()
 
+        # ---------- 3b. 几何连通域拆分 + 跨字共享部件检测 ----------
+        char_subs, shared = find_shared_components(
+            glyphs, tolerance=decomposer_tolerance,
+        )
+        t_decompose = time.time()
+
         # ---------- 4. .hfc 编码 ----------
         encoder = HFCEncoder()
         options = EncodeOptions(use_brotli=True, include_component_samples=True)
-        hfc_bytes, hfc_result = encoder.encode_to_bytes(
+        hfc_bytes, _hfc_result = encoder.encode_to_bytes(
             library, encoded, options=options,
         )
         t_encode = time.time()
@@ -169,6 +185,9 @@ def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
         scores = [e.match_score for e in encoded if e.mode == "COMPONENT"]
         avg_score = sum(scores) / len(scores) if scores else 0.0
 
+        total_subs = sum(len(v) for v in char_subs.values())
+        shared_total = sum(s.appearance_count for s in shared)
+
         stats = {
             "total_chars": len(glyphs),
             "component_mode": component_mode,
@@ -178,8 +197,12 @@ def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
             "time_extract_ms": (t_extract - t0) * 1000,
             "time_library_ms": (t_lib - t_extract) * 1000,
             "time_match_ms": (t_match - t_lib) * 1000,
-            "time_encode_ms": (t_encode - t_match) * 1000,
+            "time_decompose_ms": (t_decompose - t_match) * 1000,
+            "time_encode_ms": (t_encode - t_decompose) * 1000,
             "time_total_ms": (t_encode - t0) * 1000,
+            "total_sub_contours": total_subs,
+            "shared_components": len(shared),
+            "shared_appearances": shared_total,
         }
     finally:
         try:
@@ -195,6 +218,8 @@ def run_pipeline(font_bytes: bytes, font_name: str, max_chars: int = 200,
         encoded_chars=encoded,
         hfc_bytes=hfc_bytes,
         stats=stats,
+        char_subs=char_subs,
+        shared=shared,
         created_at=time.time(),
     )
 
@@ -272,8 +297,6 @@ def api_session(sid: str):
     # 匹配成功的字 + 未匹配的字
     matched = []
     unmatched = []
-    glyph_lookup = {g.unicode: g for g in session.glyphs}
-
     for enc in session.encoded_chars:
         char_obj = chr(enc.unicode) if 0 < enc.unicode < 0x110000 else "?"
         entry = {
@@ -291,13 +314,100 @@ def api_session(sid: str):
 
     matched.sort(key=lambda x: -x["match_score"])
 
+    # 共享部件 (新功能): 每个 shared component 列出它出现的字和在该字中的子轮廓编号
+    shared_list = []
+    for idx, sc in enumerate(session.shared):
+        shared_list.append({
+            "index": idx,
+            "tag": sc.tag,
+            "chars": sc.chars,
+            "appearance_count": sc.appearance_count,
+            "mean_similarity": round(sc.mean_similarity, 4),
+        })
+
+    # 每个字的子轮廓统计
+    char_decompose = {}
+    for ch, subs in session.char_subs.items():
+        char_decompose[ch] = [{
+            "index": i,
+            "size": int(max(
+                s.bbox[2] - s.bbox[0],
+                s.bbox[3] - s.bbox[1],
+            )),
+        } for i, s in enumerate(subs)]
+
     return jsonify({
         "ok": True,
         "session": session.summary(),
         "components": components,
         "matched": matched,
         "unmatched": unmatched,
+        "shared": shared_list,
+        "char_decompose": char_decompose,
     })
+
+
+@app.route("/api/sub/svg", methods=["GET"])
+def api_sub_svg():
+    """
+    渲染某个字中的第 i 个子轮廓 (部件)。
+
+    query:
+        sid=...   session id
+        char=...  字 (如 "明")
+        index=... 子轮廓索引
+        size=...  像素大小
+    """
+    sid = request.args.get("sid", "")
+    session = _SESSIONS.get(sid)
+    if session is None:
+        return "session not found", 404
+
+    ch = request.args.get("char", "")
+    idx = int(request.args.get("index", "0"))
+    subs = session.char_subs.get(ch, [])
+    if not subs or idx >= len(subs):
+        return "sub not found", 404
+
+    size = int(request.args.get("size", 120))
+    sub = subs[idx]
+
+    # 把 SubContour 转成临时 GlyphContours 再走 SVG 渲染
+    glyph = GlyphContours(unicode=ord(ch))
+    for c in sub.contours:
+        new_c = glyph.add_contour()
+        for p in c.points:
+            new_c.add_point(p.x, p.y, p.is_on_curve)
+    glyph.recompute_bbox()
+
+    svg = glyph_to_svg(glyph, size=size)
+    return svg, 200, {"Content-Type": "image/svg+xml; charset=utf-8"}
+
+
+@app.route("/api/shared/svg", methods=["GET"])
+def api_shared_svg():
+    """渲染某个共享部件的代表轮廓。"""
+    sid = request.args.get("sid", "")
+    session = _SESSIONS.get(sid)
+    if session is None:
+        return "session not found", 404
+
+    idx = int(request.args.get("index", "0"))
+    if idx < 0 or idx >= len(session.shared):
+        return "index out of range", 404
+
+    size = int(request.args.get("size", 140))
+    sc = session.shared[idx]
+
+    glyph = GlyphContours(unicode=0x0000)
+    for c in sc.representative.contours:
+        new_c = glyph.add_contour()
+        for p in c.points:
+            new_c.add_point(p.x, p.y, p.is_on_curve)
+    glyph.recompute_bbox()
+
+    svg = glyph_to_svg(glyph, size=size)
+    return svg, 200, {"Content-Type": "image/svg+xml; charset=utf-8"}
 
 
 @app.route("/api/glyph/svg", methods=["GET"])
