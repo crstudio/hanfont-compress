@@ -90,6 +90,55 @@ HanFont Compress 采用 **逆向工程思路**：
 
 ---
 
+## 快速开始
+
+### 安装依赖
+
+```bash
+pip install fonttools numpy scipy pillow brotli
+```
+
+### 运行压缩（命令行）
+
+```bash
+# 演示模式（无需字体文件）
+.\run_hfc.bat --demo --route all --output demo.html
+
+# 压缩真实字体
+.\run_hfc.bat --font myfont.ttf --route A --output report.html
+
+# 对比所有路线
+.\run_hfc.bat --font myfont.ttf --route all --output compare.html
+
+# 自定义参数
+.\run_hfc.bat --font myfont.ttf --route B --iou 0.90 --bitmap 256 --output result.html
+```
+
+### 命令行参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--font, -f` | 输入字体文件 (TTF/OTF) | 必填（或用 --demo） |
+| `--demo` | 演示模式，使用合成数据 | 否 |
+| `--route, -r` | 压缩路线: A / B / C / all | A |
+| `--output, -o` | HTML 报告输出路径 | report_<timestamp>.html |
+| `--iou` | IoU 匹配阈值 | 0.92 |
+| `--bitmap` | 位图栅格化大小 | 128 |
+| `--minsize` | 最小部件点数 | 200 |
+| `--delta` | Delta 点比例（路线B） | 0.5 |
+| `--chars` | 要处理的字符，如 "一二三" | 全部汉字 |
+| `--verbose, -v` | 详细输出 | 否 |
+
+### 启动 Web UI
+
+```bash
+set PYTHONPATH=src
+python -m webui.server
+```
+然后浏览器打开 http://localhost:5000
+
+---
+
 ## 开发者指南
 
 ### 环境准备
